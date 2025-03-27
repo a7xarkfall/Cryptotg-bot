@@ -93,22 +93,18 @@ async def payment_webhook(request: Request):
 
 # === Главная функция ===
 async def main():
-    telegram_app.add_handler(CommandHandler("start", start))
-    telegram_app.add_handler(CallbackQueryHandler(button_callback))
-    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
-    telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
-
-    # Запускаем Telegram и FastAPI одновременно
-    runner = telegram_app.run_polling(allowed_updates=Update.ALL_TYPES, close_loop=False)
-    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
+    # Запускаем FastAPI
+    config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
     server = uvicorn.Server(config)
 
+    # Инициализируем Telegram-бота
+    await telegram_app.initialize()
+    await telegram_app.start()
+    await telegram_app.updater.start_polling()
+
+    # Запускаем FastAPI и Telegram-бота параллельно
     await asyncio.gather(
-        asyncio.to_thread(server.run),
-        runner
+        server.serve(),
+        telegram_app.updater.wait_for_stop(),  # ждём завершения
     )
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
 
