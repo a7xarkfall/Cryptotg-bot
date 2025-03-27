@@ -20,6 +20,7 @@ fastapi_app = FastAPI()
 received_users = set()
 
 # === Telegram Handlers ===
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     main_keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📁 Получить файл", callback_data="get_file")],
@@ -34,13 +35,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Same as start message
     main_keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📁 Получить файл", callback_data="get_file")],
         [InlineKeyboardButton("📩 Поддержка", callback_data="support")],
         [InlineKeyboardButton("ℹ️ О боте", callback_data="about")]
     ])
     await update.message.reply_text(
-        "Главное меню:\n\nВыбирай, что тебе нужно ⤵️",
+        "Главное меню:\n\n"
+        "Выбирай, что тебе нужно ⤵️",
         reply_markup=main_keyboard
     )
 
@@ -56,9 +59,9 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
         "Доступные команды:\n"
-        "/start - Запустить бота\n"
-        "/menu - Главное меню\n"
-        "/pay - Оплата и получение файла\n"
+        "/start - Запустить бота и получить приветствие\n"
+        "/menu - Показать главное меню\n"
+        "/pay - Инструкция по оплате\n"
         "/about - Информация о боте\n"
         "/help - Эта справка"
     )
@@ -67,7 +70,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     about_text = (
         "ℹ️ Этот бот создан для обмена криптомонет на магические файлы.\n\n"
-        "Просто нажми «Оплатить», и после оплаты я пришлю тебе твой файл.\n\n"
+        "Просто следуй инструкциям после оплаты.\n"
         "Если возникнут вопросы — всегда на связи!"
     )
     await update.message.reply_text(about_text)
@@ -92,7 +95,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file = InputFile(FILE_PATH)
             await query.message.reply_document(document=file, caption="📄 Вот твой файл, как и договаривались.")
         else:
-            await query.message.reply_text("❌ Нет оплаты - нет товара, плати!")
+            await query.message.reply_text(
+                "❌ Нет оплаты - нет товара, соси бибу, чепух! И плати!"
+            )
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Неизвестное сообщение")
@@ -100,7 +105,7 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Команда не найдена")
 
-# === FastAPI Webhook for Payment Verification ===
+# === FastAPI Webhook ===
 @fastapi_app.post("/webhook")
 async def payment_webhook(request: Request):
     data = await request.json()
@@ -109,6 +114,7 @@ async def payment_webhook(request: Request):
 
     if invoice_id != CRYPTOBOT_INVOICE:
         return JSONResponse(content={"status": "ignored"}, status_code=200)
+
     if user_id in received_users:
         return JSONResponse(content={"status": "already_received"}, status_code=200)
 
@@ -121,9 +127,7 @@ async def payment_webhook(request: Request):
             text="✅ Успешная оплата!\n\nВот твой файл. Спасибо за доверие ✨"
         )
         await telegram_app.bot.send_document(
-            chat_id=user_id,
-            document=file,
-            caption="📄 Лови файл"
+            chat_id=user_id, document=file, caption="📄 Лови файл"
         )
         await telegram_app.bot.send_message(
             chat_id=ADMIN_ID,
@@ -152,20 +156,17 @@ setup_telegram_handlers()
 
 # === Main Function ===
 async def main():
-    # Initialize and start Telegram bot
     await telegram_app.initialize()
     await telegram_app.start()
-    # Remove any existing webhook (drop pending updates) to avoid conflicts
-    await telegram_app.bot.delete_webhook(drop_pending_updates=True)
-    
+
     port = int(os.environ.get("PORT", 8000))
     config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config)
-    
-    # Start Telegram polling as a background task using run_polling()
-    telegram_polling_task = asyncio.create_task(telegram_app.run_polling())
+
+    # Start Telegram polling as a background task
+    telegram_polling_task = asyncio.create_task(telegram_app.updater.start_polling())
     uvicorn_task = asyncio.create_task(server.serve())
-    
+
     await asyncio.gather(telegram_polling_task, uvicorn_task)
 
 if __name__ == "__main__":
