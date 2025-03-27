@@ -67,28 +67,23 @@ async def payment_webhook(request: Request):
 
     return JSONResponse(content={"status": "ok"}, status_code=200)
 
-# === Главная функция ===
-async def main():
-    # Добавляем хендлеры для Telegram
+# === Регистрация обработчиков Telegram ===
+def setup_telegram_handlers():
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(CallbackQueryHandler(button_callback))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
     telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
-    # Инициализируем Telegram-приложение
+setup_telegram_handlers()
+
+# Запуск Telegram-бота при старте FastAPI
+@fastapi_app.on_event("startup")
+async def start_telegram_bot():
+    # Инициализируем и запускаем бота в фоне
     await telegram_app.initialize()
-
-    # Запускаем Telegram-бота через run_polling() в отдельной задаче
-    telegram_task = asyncio.create_task(telegram_app.run_polling())
-
-    # Настраиваем и запускаем FastAPI сервер с uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=port, log_level="info")
-    server = uvicorn.Server(config)
-    uvicorn_task = asyncio.create_task(server.serve())
-
-    # Ждем завершения обеих задач
-    await asyncio.gather(telegram_task, uvicorn_task)
+    # run_polling не закрывает цикл, так что его можно запускать как задачу
+    asyncio.create_task(telegram_app.run_polling())
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(fastapi_app, host="0.0.0.0", port=port, log_level="info")
