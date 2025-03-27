@@ -155,15 +155,15 @@ async def main():
     # Initialize and start Telegram bot
     await telegram_app.initialize()
     await telegram_app.start()
-    # Remove any existing webhook to use polling
-    await telegram_app.bot.delete_webhook()
+    # Remove any existing webhook (drop pending updates) to avoid conflicts
+    await telegram_app.bot.delete_webhook(drop_pending_updates=True)
     
     port = int(os.environ.get("PORT", 8000))
     config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config)
     
-    # Start Telegram polling as a background task and FastAPI server concurrently
-    telegram_polling_task = asyncio.create_task(telegram_app.updater.start_polling())
+    # Start Telegram polling as a background task using run_polling()
+    telegram_polling_task = asyncio.create_task(telegram_app.run_polling())
     uvicorn_task = asyncio.create_task(server.serve())
     
     await asyncio.gather(telegram_polling_task, uvicorn_task)
