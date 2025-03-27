@@ -10,49 +10,20 @@ from fastapi.responses import JSONResponse
 import uvicorn
 
 # Настройки
-TOKEN = "8162219271:AAEhKmeNRLzORbDwXyLKH4tbUMMmtU-ypsw"
+TOKEN = os.environ.get("BOT_TOKEN", "твой_токен")
 CRYPTOBOT_INVOICE = "IVGMYQSAqfgn"
 CRYPTOBOT_LINK = f"https://t.me/send?start={CRYPTOBOT_INVOICE}"
 ADMIN_ID = 6170133844
 FILE_PATH = "example.txt"
 VIDEO_PATH = "rickroll.mp4"
-LOG_FILE = "paid_users.txt"
 
 # Telegram
 telegram_app = Application.builder().token(TOKEN).build()
-# FastAPI
 fastapi_app = FastAPI()
 received_users = set()
+logging.basicConfig(level=logging.INFO)
 
-# === Telegram: Команды ===
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💳 Оплатить 0.1 USDT", url=CRYPTOBOT_LINK)],
-        [InlineKeyboardButton("📩 Поддержка", callback_data="support")],
-        [InlineKeyboardButton("ℹ️ О боте", callback_data="about")]
-    ])
-    await update.message.reply_text(
-        "Привет! Чтобы получить файл, оплати 0.1 USDT через CryptoBot и получишь приз 🎁",
-        reply_markup=keyboard
-    )
 
-async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message:
-        with open(VIDEO_PATH, "rb") as vid:
-            await update.message.reply_video(vid, caption="🎶 Никогда тебя не подведу...")
-
-async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Не понимаю такую команду 😅")
-
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if query.data == "support":
-        await query.edit_message_text("📩 Пиши на почту: a7xspurius@gmail.com")
-    elif query.data == "about":
-        await query.edit_message_text("У каджита есть для тебя скума, если у тебя есть монеты для каджита, друг.")
-
-# === FastAPI Webhook ===
 @fastapi_app.post("/webhook")
 async def payment_webhook(request: Request):
     data = await request.json()
@@ -77,26 +48,59 @@ async def payment_webhook(request: Request):
 
     return JSONResponse(content={"status": "ok"}, status_code=200)
 
-# === Главный запуск ===
-async def main():
+
+# Обработчики
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💳 Оплатить 0.1 USDT", url=CRYPTOBOT_LINK)],
+        [InlineKeyboardButton("📩 Поддержка", callback_data="support")],
+        [InlineKeyboardButton("ℹ️ О боте", callback_data="about")]
+    ])
+    await update.message.reply_text("Привет! Чтобы получить файл, оплати 0.1 USDT через CryptoBot и получишь приз 🎁", reply_markup=keyboard)
+
+
+async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message:
+        with open(VIDEO_PATH, "rb") as vid:
+            await update.message.reply_video(vid, caption="🎶 Никогда тебя не подведу...")
+
+
+async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Не понимаю такую команду 😅")
+
+
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.data == "support":
+        await query.edit_message_text("📩 Пиши на почту: a7xspurius@gmail.com")
+    elif query.data == "about":
+        await query.edit_message_text("У каджита есть для тебя скума, если у тебя есть монеты для каджита, друг.")
+
+
+# Главный запуск
+if __name__ == "__main__":
+    # Обработчики
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(CallbackQueryHandler(button_callback))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
     telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
-    await telegram_app.initialize()
-    await telegram_app.start()
-    await telegram_app.updater.start_polling()
+    # Запускаем всё асинхронно
+    async def run():
+        # Запускаем FastAPI
+        port = int(os.environ.get("PORT", 8000))
+        config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=port, log_level="info")
+        server = uvicorn.Server(config)
 
-    # FastAPI запуск
-    port = int(os.environ.get("PORT", 8000))
-    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=port, log_level="info")
-    server = uvicorn.Server(config)
+        # Telegram
+        await telegram_app.initialize()
+        await telegram_app.start()
+        await telegram_app.updater.start_polling()
 
-    await asyncio.gather(
-        server.serve(),
-        telegram_app.updater.wait_for_stop()
-    )
+        await asyncio.gather(
+            server.serve(),
+            telegram_app.updater.wait_for_stop()
+        )
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(run())
