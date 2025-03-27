@@ -13,7 +13,7 @@ TOKEN = "8162219271:AAEhKmeNRLzORbDwXyLKH4tbUMMmtU-ypsw"
 CRYPTOBOT_INVOICE = "IVGMYQSAqfgn"
 CRYPTOBOT_LINK = f"https://t.me/send?start={CRYPTOBOT_INVOICE}"
 ADMIN_ID = 427325039
-FILE_PATH = "example.txt"
+FILE_PATH = "app/example.txt"
 
 telegram_app = Application.builder().token(TOKEN).build()
 fastapi_app = FastAPI()
