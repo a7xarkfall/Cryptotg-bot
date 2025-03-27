@@ -18,14 +18,13 @@ FILE_PATH = "example.txt"
 VIDEO_PATH = "rickroll.mp4"
 LOG_FILE = "paid_users.txt"
 
-# Telegram и FastAPI
+# Telegram
 telegram_app = Application.builder().token(TOKEN).build()
+# FastAPI
 fastapi_app = FastAPI()
 received_users = set()
 
-logging.basicConfig(level=logging.INFO)
-
-# === Telegram: Хендлеры ===
+# === Telegram: Команды ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("💳 Оплатить 0.1 USDT", url=CRYPTOBOT_LINK)],
@@ -53,7 +52,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "about":
         await query.edit_message_text("У каджита есть для тебя скума, если у тебя есть монеты для каджита, друг.")
 
-# === FastAPI: Webhook для оплаты ===
+# === FastAPI Webhook ===
 @fastapi_app.post("/webhook")
 async def payment_webhook(request: Request):
     data = await request.json()
@@ -78,23 +77,26 @@ async def payment_webhook(request: Request):
 
     return JSONResponse(content={"status": "ok"}, status_code=200)
 
-# === Запуск Telegram + FastAPI ===
-async def start_all():
+# === Главный запуск ===
+async def main():
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(CallbackQueryHandler(button_callback))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
     telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
-    # Запускаем FastAPI сервер в отдельном потоке
+    await telegram_app.initialize()
+    await telegram_app.start()
+    await telegram_app.updater.start_polling()
+
+    # FastAPI запуск
     port = int(os.environ.get("PORT", 8000))
     config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config)
 
-    # Параллельный запуск FastAPI и Telegram
     await asyncio.gather(
-        asyncio.to_thread(server.run),
-        telegram_app.run_polling(allowed_updates=Update.ALL_TYPES)
+        server.serve(),
+        telegram_app.updater.wait_for_stop()
     )
 
 if __name__ == "__main__":
-    asyncio.run(start_all())
+    asyncio.run(main())
