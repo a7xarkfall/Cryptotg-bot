@@ -8,7 +8,7 @@ from telegram.ext import Application, ContextTypes
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-# === Конфигурация ===
+# === Configuration ===
 TOKEN = "8162219271:AAEhKmeNRLzORbDwXyLKH4tbUMMmtU-ypsw"
 CRYPTOBOT_INVOICE = "IVGMYQSAqfgn"
 CRYPTOBOT_LINK = f"https://t.me/send?start={CRYPTOBOT_INVOICE}"
@@ -21,7 +21,7 @@ received_users = set()
 
 # === Telegram Handlers ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Отправляем кнопку оплаты отдельно, чтобы не блокировать остальные
+    # Send the payment button separately to not block other options
     pay_keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("💳 Оплатить — 0.1 USDT", url=CRYPTOBOT_LINK)]
     ])
@@ -52,14 +52,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "`a7xspurius@gmail.com`\n\n"
             "Каджит ответит, как только прикончит эту скуму."
         )
-
     elif query.data == "about":
         await query.edit_message_text(
             "ℹ️ Этот бот создан для того, чтобы обменивать монеты на магические файлы.\n\n"
             "Просто нажми «Оплатить», и после оплаты я пришлю тебе твой файл.\n\n"
             "Если возникнут вопросы — всегда на связи!"
         )
-
     elif query.data == "get_file":
         if query.from_user.id in received_users:
             file = InputFile(FILE_PATH)
@@ -112,13 +110,16 @@ async def payment_webhook(request: Request):
 
     return JSONResponse(content={"status": "ok"}, status_code=200)
 
-# === Главная функция ===
-async def main():
+def setup_telegram_handlers():
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(CallbackQueryHandler(button_callback))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
     telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
+setup_telegram_handlers()
+
+# === Main Function ===
+async def main():
     await telegram_app.initialize()
     await telegram_app.start()
 
@@ -126,10 +127,11 @@ async def main():
     config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config)
 
-    await asyncio.gather(
-        server.serve(),
-        telegram_app.updater.wait_for_stop()
-    )
+    # Start Telegram polling as a background task (do not use updater.wait_for_stop())
+    telegram_polling_task = asyncio.create_task(telegram_app.updater.start_polling())
+    uvicorn_task = asyncio.create_task(server.serve())
+
+    await asyncio.gather(telegram_polling_task, uvicorn_task)
 
 if __name__ == "__main__":
     asyncio.run(main())
