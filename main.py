@@ -9,10 +9,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 # === Конфигурация ===
-TOKEN = "твой_токен"
-CRYPTOBOT_INVOICE = "твой_invoice"
+TOKEN = "8162219271:AAEhKmeNRLzORbDwXyLKH4tbUMMmtU-ypsw"
+CRYPTOBOT_INVOICE = "IVGMYQSAqfgn"
 CRYPTOBOT_LINK = f"https://t.me/send?start={CRYPTOBOT_INVOICE}"
-ADMIN_ID = 123456789
+ADMIN_ID = 427325039
 FILE_PATH = "example.txt"
 
 telegram_app = Application.builder().token(TOKEN).build()
