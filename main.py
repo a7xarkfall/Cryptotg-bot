@@ -1,12 +1,10 @@
 import os
-import asyncio
-import uvicorn
-
 from telegram.ext import CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import Application, ContextTypes
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+import uvicorn
 
 # === Конфигурация ===
 TOKEN = "8162219271:AAEhKmeNRLzORbDwXyLKH4tbUMMmtU-ypsw"
@@ -67,7 +65,6 @@ async def payment_webhook(request: Request):
 
     return JSONResponse(content={"status": "ok"}, status_code=200)
 
-# === Регистрация обработчиков Telegram ===
 def setup_telegram_handlers():
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(CallbackQueryHandler(button_callback))
@@ -76,13 +73,18 @@ def setup_telegram_handlers():
 
 setup_telegram_handlers()
 
-# Запуск Telegram-бота при старте FastAPI
 @fastapi_app.on_event("startup")
-async def start_telegram_bot():
-    # Инициализируем и запускаем бота в фоне
+async def startup_event():
+    # Инициализируем и запускаем Telegram-бота
     await telegram_app.initialize()
-    # run_polling не закрывает цикл, так что его можно запускать как задачу
-    asyncio.create_task(telegram_app.run_polling())
+    await telegram_app.start()
+    await telegram_app.updater.start_polling()
+
+@fastapi_app.on_event("shutdown")
+async def shutdown_event():
+    # Корректно останавливаем Telegram-бота
+    await telegram_app.updater.stop()
+    await telegram_app.shutdown()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
