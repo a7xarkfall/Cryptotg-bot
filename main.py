@@ -1,136 +1,134 @@
-
-import asyncio
+import logging
 import os
+import asyncio
+
 from fastapi import FastAPI, Request
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+from fastapi.responses import PlainTextResponse
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
-    MessageHandler, ContextTypes, filters
+    ContextTypes, MessageHandler, filters
 )
+import httpx
 
 TOKEN = "8162219271:AAEhKmeNRLzORbDwXyLKH4tbUMMmtU-ypsw"
 CRYPTOBOT_LINK = "https://t.me/send?start=IVGMYQSAqfgn"
-EXPECTED_PAYLOAD = "IVGMYQSAqfgn"
-ADMIN_ID = 519105945  # @a7xark
-
-FILE_PATH = "app/example.txt"
-GIF_PATH = "app/success.gif"
-LOG_FILE = "app/paid_users.txt"
+INVOICE_ID = "IVGMYQSAqfgn"
+OWNER_ID = 5803903142  # сюда будут приходить уведомления
+FILE_PATH = "example.txt"
+GIF_PATH = "rickroll.mp4"
+LOG_FILE = "paid_users.txt"
 
 app = FastAPI()
-bot = Bot(token=TOKEN)
 telegram_app = Application.builder().token(TOKEN).build()
 
-
-def user_already_received(user_id):
-    if not os.path.exists(LOG_FILE):
-        return False
-    with open(LOG_FILE, "r") as f:
-        return str(user_id) in f.read()
+paid_users = set()
+recent_tx_ids = set()
 
 
-def log_user(user_id):
+def load_paid_users():
+    if os.path.exists(LOG_FILE):
+        with open(LOG_FILE, "r") as f:
+            for line in f:
+                paid_users.add(int(line.strip()))
+
+
+def save_paid_user(user_id: int):
+    paid_users.add(user_id)
     with open(LOG_FILE, "a") as f:
         f.write(f"{user_id}\n")
 
 
-@app.post("/crypto-webhook")
-async def crypto_webhook(request: Request):
-    try:
-        data = await request.json()
-        print("🔥 Получено от CryptoBot:", data)
-
-        if data.get("event") == "payment" and data.get("status") == "success":
-            payload = data.get("invoice_payload")
-            telegram_id = data.get("user", {}).get("telegram_id")
-            username = data.get("user", {}).get("username", "неизвестен")
-
-            if payload == EXPECTED_PAYLOAD and telegram_id:
-                await bot.send_message(chat_id=ADMIN_ID, text=f"💸 Оплата от @{username} (ID: {telegram_id}) получена!")
-
-                if user_already_received(telegram_id):
-                    await bot.send_message(chat_id=telegram_id, text="📁 Вы уже получали файл. Спасибо за оплату!")
-                else:
-                    if os.path.exists(FILE_PATH):
-                        await bot.send_document(chat_id=telegram_id, document=InputFile(FILE_PATH),
-                                                caption="📄 Лови свой приз, ковбой 🤠")
-
-                        if os.path.exists(GIF_PATH):
-                            with open(GIF_PATH, "rb") as gif:
-                                await bot.send_animation(chat_id=telegram_id, animation=gif, caption="🎉 Великий успех!")
-
-                        log_user(telegram_id)
-                    else:
-                        await bot.send_message(chat_id=telegram_id, text="❌ Файл не найден. Обратитесь в поддержку.")
-
-        return {"ok": True}
-    except Exception as e:
-        print(f"❌ Ошибка в webhook: {e}")
-        return {"error": str(e)}
-
-
+@telegram_app.command_handler("start")
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await menu(update, context)
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💳 Оплатить 0.1 USDT (ERC-20)", url=CRYPTOBOT_LINK)],
+        [InlineKeyboardButton("📩 Поддержка", callback_data="support")],
+        [InlineKeyboardButton("ℹ️ О боте", callback_data="about")]
+    ])
+    await update.message.reply_text(
+        "Привет! Чтобы получить файл, оплати 0.1 USDT через CryptoBot и нажми кнопку.\n\nПосле этого я пришлю тебе 🔥",
+        reply_markup=keyboard
+    )
 
 
-async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("💳 Оплатить", callback_data="pay"),
-         InlineKeyboardButton("📁 Получить", callback_data="get")],
-        [InlineKeyboardButton("📩 Поддержка", callback_data="support"),
-         InlineKeyboardButton("ℹ️ О боте", callback_data="about")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("💬 Выберите действие:", reply_markup=reply_markup)
-
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+@telegram_app.callback_query_handler()
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "pay":
-        keyboard = [[InlineKeyboardButton("💳 Оплатить 0.1 USDT (ERC-20)", url=CRYPTOBOT_LINK)]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text("💰 Отправьте 0.1 USDT через CryptoBot. После оплаты файл будет выдан автоматически.",
-                                      reply_markup=reply_markup)
-
-    elif query.data == "get":
-        telegram_id = query.from_user.id
-        if user_already_received(telegram_id):
-            await bot.send_document(chat_id=telegram_id, document=InputFile(FILE_PATH),
-                                    caption="📄 Лови свой приз, ковбой 🤠")
-        else:
-            await bot.send_message(chat_id=telegram_id, text="❌ Вы ещё не оплачивали. Сначала нажмите «Оплатить».")
-
-    elif query.data == "support":
-        await query.edit_message_text("📩 По всем вопросам пишите на: a7xspurius@gmail.com")
-
+    if query.data == "support":
+        await query.message.reply_text("📩 По всем вопросам оплаты пиши на a7xspurius@gmail.com")
     elif query.data == "about":
-        await query.edit_message_text("У каджита есть для тебя скума, если у тебя есть монеты для каджита, друг 😼")
+        await query.message.reply_text("У каджита есть для тебя скума, если у тебя есть монеты для каджита, друг")
 
 
-async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Извини, я не знаю такой команды 😅")
-
-
+@telegram_app.message_handler(filters.TEXT & ~filters.COMMAND)
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        with open("app/rickroll.mp4", "rb") as video:
-            await update.message.reply_video(video, caption="🎶 Никогда тебя не подведу...")
-    except Exception as e:
-        await update.message.reply_text(f"⚠️ Видео не найдено: {e}")
+    if os.path.exists(GIF_PATH):
+        with open(GIF_PATH, "rb") as f:
+            await update.message.reply_video(f, caption="🎶 Никогда тебя не подведу...")
+    else:
+        await update.message.reply_text("Я ничего не понял, ковбой 🤠")
 
 
-telegram_app.add_handler(CommandHandler("start", start))
-telegram_app.add_handler(CommandHandler("menu", menu))
-telegram_app.add_handler(CallbackQueryHandler(button_handler))
-telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
-telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+@telegram_app.message_handler(filters.COMMAND)
+async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Не знаю такую команду, ковбой 😅")
+
+
+@app.post("/webhook")
+async def crypto_webhook(request: Request):
+    data = await request.json()
+    invoice_id = data.get("invoice_id")
+    telegram_user_id = data.get("user", {}).get("id")
+
+    if invoice_id == INVOICE_ID and telegram_user_id:
+        if int(telegram_user_id) not in paid_users:
+            # Отправка файла
+            try:
+                await telegram_app.bot.send_document(
+                    chat_id=telegram_user_id,
+                    document=InputFile(FILE_PATH),
+                    caption="📁 Лови свой приз, ковбой!"
+                )
+                if os.path.exists(GIF_PATH):
+                    with open(GIF_PATH, "rb") as gif:
+                        await telegram_app.bot.send_video(chat_id=telegram_user_id, video=gif)
+
+                # Уведомление владельца
+                await telegram_app.bot.send_message(
+                    chat_id=OWNER_ID,
+                    text=f"💸 Новый платёж от пользователя [{telegram_user_id}](tg://user?id={telegram_user_id})",
+                    parse_mode="Markdown"
+                )
+
+                save_paid_user(int(telegram_user_id))
+                return PlainTextResponse("✅ Отправлено")
+            except Exception as e:
+                return PlainTextResponse(f"❌ Ошибка отправки: {e}")
+        else:
+            return PlainTextResponse("📂 Пользователь уже получал файл")
+    return PlainTextResponse("⚠️ Неизвестный запрос")
 
 
 async def main():
-    tg_task = telegram_app.run_polling(allowed_updates=Update.ALL_TYPES, close_loop=False)
-    await tg_task
+    load_paid_users()
+
+    # Параллельно запускаем FastAPI и Telegram polling
+    async def start_fastapi():
+        import uvicorn
+        config = uvicorn.Config(app=app, host="0.0.0.0", port=8000, log_level="info")
+        server = uvicorn.Server(config)
+        await server.serve()
+
+    async def start_telegram():
+        await telegram_app.initialize()
+        await telegram_app.start()
+        await telegram_app.updater.start_polling()
+        await telegram_app.updater.idle()
+
+    await asyncio.gather(start_fastapi(), start_telegram())
 
 
 if __name__ == "__main__":
