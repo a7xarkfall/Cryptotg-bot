@@ -1,10 +1,12 @@
 import os
+import asyncio
+import uvicorn
+
 from telegram.ext import CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import Application, ContextTypes
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-import uvicorn
 
 # === Конфигурация ===
 TOKEN = "8162219271:AAEhKmeNRLzORbDwXyLKH4tbUMMmtU-ypsw"
@@ -19,26 +21,59 @@ received_users = set()
 
 # === Telegram Handlers ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💳 Оплатить", url=CRYPTOBOT_LINK)],
+    # Отправляем кнопку оплаты отдельно, чтобы не блокировать остальные
+    pay_keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💳 Оплатить — 0.1 USDT", url=CRYPTOBOT_LINK)]
+    ])
+    await update.message.reply_text(
+        "Чтобы получить файл, сначала оплати ⬇️",
+        reply_markup=pay_keyboard
+    )
+
+    main_keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📁 Получить файл", callback_data="get_file")],
         [InlineKeyboardButton("📩 Поддержка", callback_data="support")],
         [InlineKeyboardButton("ℹ️ О боте", callback_data="about")]
     ])
-    await update.message.reply_text("Привет!", reply_markup=keyboard)
+    await update.message.reply_text(
+        "Привет, путник! 🧙‍♂️\n\n"
+        "Я каджит-бот. Тут можно обменять криптомонеты на магические файлы.\n\n"
+        "Выбирай, что тебе нужно ⤵️",
+        reply_markup=main_keyboard
+    )
+
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "support":
+        await query.edit_message_text(
+            "📩 Если что-то не работает — пиши на почту:\n"
+            "`a7xspurius@gmail.com`\n\n"
+            "Каджит ответит, как только прикончит эту скуму."
+        )
+
+    elif query.data == "about":
+        await query.edit_message_text(
+            "ℹ️ Этот бот создан для того, чтобы обменивать монеты на магические файлы.\n\n"
+            "Просто нажми «Оплатить», и после оплаты я пришлю тебе твой файл.\n\n"
+            "Если возникнут вопросы — всегда на связи!"
+        )
+
+    elif query.data == "get_file":
+        if query.from_user.id in received_users:
+            file = InputFile(FILE_PATH)
+            await query.message.reply_document(document=file, caption="📄 Вот твой файл, как и договаривались.")
+        else:
+            await query.message.reply_text(
+                "❌ Нет оплаты - нет товара, соси бибу, чепух! И плати!"
+            )
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Неизвестное сообщение")
 
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Команда не найдена")
-
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if query.data == "support":
-        await query.edit_message_text("📩 Пиши на почту: a7xspurius@gmail.com")
-    elif query.data == "about":
-        await query.edit_message_text("У каджита есть для тебя скума.")
 
 # === FastAPI Webhook ===
 @fastapi_app.post("/webhook")
@@ -57,35 +92,44 @@ async def payment_webhook(request: Request):
 
     try:
         file = InputFile(FILE_PATH)
-        await telegram_app.bot.send_document(chat_id=user_id, document=file, caption="📄 Лови файл")
-        await telegram_app.bot.send_message(chat_id=ADMIN_ID, text=f"✅ Оплата от юзера: {user_id}")
+        await telegram_app.bot.send_message(
+            chat_id=user_id,
+            text="✅ Успешная оплата!\n\nВот твой файл. Спасибо за доверие ✨"
+        )
+        await telegram_app.bot.send_document(
+            chat_id=user_id, document=file, caption="📄 Лови файл"
+        )
+        await telegram_app.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=f"✅ Оплата от юзера: {user_id}"
+        )
     except Exception as e:
-        await telegram_app.bot.send_message(chat_id=ADMIN_ID, text=f"❌ Ошибка при отправке: {e}")
+        await telegram_app.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=f"❌ Ошибка при отправке: {e}"
+        )
         return JSONResponse(content={"status": "error"}, status_code=500)
 
     return JSONResponse(content={"status": "ok"}, status_code=200)
 
-def setup_telegram_handlers():
+# === Главная функция ===
+async def main():
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(CallbackQueryHandler(button_callback))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
     telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
-setup_telegram_handlers()
-
-@fastapi_app.on_event("startup")
-async def startup_event():
-    # Инициализируем и запускаем Telegram-бота
     await telegram_app.initialize()
     await telegram_app.start()
-    await telegram_app.updater.start_polling()
 
-@fastapi_app.on_event("shutdown")
-async def shutdown_event():
-    # Корректно останавливаем Telegram-бота
-    await telegram_app.updater.stop()
-    await telegram_app.shutdown()
+    port = int(os.environ.get("PORT", 8000))
+    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=port, log_level="info")
+    server = uvicorn.Server(config)
+
+    await asyncio.gather(
+        server.serve(),
+        telegram_app.updater.wait_for_stop()
+    )
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(fastapi_app, host="0.0.0.0", port=port, log_level="info")
+    asyncio.run(main())
