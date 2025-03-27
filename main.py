@@ -94,7 +94,7 @@ async def payment_webhook(request: Request):
 # === Главная функция ===
 async def main():
     # Запускаем FastAPI
-    config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
+    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
     server = uvicorn.Server(config)
 
     # Инициализируем Telegram-бота
