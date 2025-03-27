@@ -69,22 +69,26 @@ async def payment_webhook(request: Request):
 
 # === Главная функция ===
 async def main():
+    # Добавляем хендлеры для Telegram
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(CallbackQueryHandler(button_callback))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
     telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
+    # Инициализируем Telegram-приложение
     await telegram_app.initialize()
-    await telegram_app.start()
 
+    # Запускаем Telegram-бота через run_polling() в отдельной задаче
+    telegram_task = asyncio.create_task(telegram_app.run_polling())
+
+    # Настраиваем и запускаем FastAPI сервер с uvicorn
     port = int(os.environ.get("PORT", 8000))
     config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config)
+    uvicorn_task = asyncio.create_task(server.serve())
 
-    await asyncio.gather(
-        server.serve(),  # 👈 обязательно с await
-        telegram_app.updater.wait_for_stop()
-    )
+    # Ждем завершения обеих задач
+    await asyncio.gather(telegram_task, uvicorn_task)
 
 if __name__ == "__main__":
     asyncio.run(main())
